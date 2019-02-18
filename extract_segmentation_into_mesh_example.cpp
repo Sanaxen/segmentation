@@ -66,7 +66,7 @@ unsigned int load_obj_to_off(const char *filename)
 	pNormals = (double*)calloc(iNumVertices, sizeof(double));
 	pIndices = (unsigned int*)malloc(iNumIndices * sizeof(unsigned int));
 
-	for (i = 0; i<iNumVertices / 3; ++i)
+	for (i = 0; i < iNumVertices / 3; ++i)
 	{
 		double x, y, z;
 		fgets(buf, 256, pFile);
@@ -81,7 +81,7 @@ unsigned int load_obj_to_off(const char *filename)
 	}
 
 	/* read index data and average face normals */
-	for (i = 0; i<iNumIndices; i += 3)
+	for (i = 0; i < iNumIndices; i += 3)
 	{
 		fgets(buf, 256, pFile);
 		while (buf[0] != 'f')
@@ -117,7 +117,7 @@ unsigned int load_obj_to_off(const char *filename)
 	fclose(pFile);
 
 	/* normalize vertex normals */
-	for (i = 0; i<iNumVertices; i += 3)
+	for (i = 0; i < iNumVertices; i += 3)
 		VEC3_NORMALIZE(pNormals + i);
 
 	printf("ok!\n");
@@ -126,12 +126,12 @@ unsigned int load_obj_to_off(const char *filename)
 	fp = fopen("tmp.off", "w");
 
 	if (fp) fprintf(fp, "OFF\n");
-	fprintf(fp, "%d %d 0\n", iNumVertices/3, iNumIndices/3);
-	for (int i = 0; i < iNumVertices/3; i++)
+	fprintf(fp, "%d %d 0\n", iNumVertices / 3, iNumIndices / 3);
+	for (int i = 0; i < iNumVertices / 3; i++)
 	{
 		fprintf(fp, "%.10f %.10f %.10f\n", pVertices[3 * i], pVertices[3 * i + 1], pVertices[3 * i + 2]);
 	}
-	for (int i = 0; i < iNumIndices/3; i++)
+	for (int i = 0; i < iNumIndices / 3; i++)
 	{
 		fprintf(fp, "3 %d %d %d\n", pIndices[3 * i], pIndices[3 * i + 1], pIndices[3 * i + 2]);
 	}
@@ -143,7 +143,7 @@ unsigned int load_obj_to_off(const char *filename)
 
 }
 
-int main(int argc, char** argv )
+int main(int argc, char** argv)
 {
 	char tmpfile[256];
 	FILE* fp;
@@ -152,57 +152,86 @@ int main(int argc, char** argv )
 	char fname_[_MAX_FNAME];	// ファイル名
 	char ext_[_MAX_EXT];		// 拡張子
 
+	int 	number_of_clusters = 5;
+	double smoothing_lambda = 0.26;
 
-  SM mesh;
-  if (argc==2){
-	  _splitpath(argv[1], drive_, dir_, fname_, ext_);
+	for (int i = 2; i < argc-1; i++)
+	{
+		if (strcmp("-clusters", argv[i]) == 0)
+		{
+			number_of_clusters = atoi(argv[i + 1]);
+			continue;
+		}
+		if (strcmp("-lambda", argv[i]) == 0)
+		{
+			smoothing_lambda = atof(argv[i + 1]);
+			continue;
+		}
+	}
+	SM mesh;
+	if (argc >= 2) 
+	{
+		printf("input=[%s]\n", argv[1]);
+		_splitpath(argv[1], drive_, dir_, fname_, ext_);
 
-	  load_obj_to_off(argv[1]);
-	  std::ifstream input("tmp.off");
-	  
-	  //std::ifstream input(argv[1]);
-    input >> mesh;
-  } else {
-    std::ifstream cactus("data/cactus.off");
-    cactus >> mesh;
-  }
-  printf("number_of_faces:%d\n", mesh.number_of_faces());
-  printf("number_of_vertices:%d\n", mesh.number_of_vertices());
+		if (std::string(ext_) == ".obj" || std::string(ext_) == ".OBJ")
+		{
+			load_obj_to_off(argv[1]);
+			std::ifstream input("tmp.off");
+			input >> mesh;
+		}
+		if (std::string(ext_) == ".off" || std::string(ext_) == ".OFF")
+		{
+			std::ifstream input(argv[1]);
+			input >> mesh;
+		}
+	}
+	else
+	{
+		fprintf(stderr, "auto_segmentation meshfilename [-clusters number_of_clusters] [-lambda smoothing_lambda]\n");
+		return -1;
+	}
+	//else {
+	//	std::ifstream cactus("data/cactus.off");
+	//	cactus >> mesh;
+	//}
+	printf("number_of_faces:%d\n", mesh.number_of_faces());
+	printf("number_of_vertices:%d\n", mesh.number_of_vertices());
 
-  typedef SM::Property_map<face_descriptor,double> Facet_double_map;
-  Facet_double_map sdf_property_map;
+	typedef SM::Property_map<face_descriptor, double> Facet_double_map;
+	Facet_double_map sdf_property_map;
 
-  sdf_property_map = mesh.add_property_map<face_descriptor,double>("f:sdf").first;
+	sdf_property_map = mesh.add_property_map<face_descriptor, double>("f:sdf").first;
 
-  CGAL::sdf_values(mesh, sdf_property_map);
+	CGAL::sdf_values(mesh, sdf_property_map);
 
-  // create a property-map for segment-ids
-  typedef SM::Property_map<face_descriptor, std::size_t> Facet_int_map;
-  Facet_int_map segment_property_map = mesh.add_property_map<face_descriptor,std::size_t>("f:sid").first;;
+	// create a property-map for segment-ids
+	typedef SM::Property_map<face_descriptor, std::size_t> Facet_int_map;
+	Facet_int_map segment_property_map = mesh.add_property_map<face_descriptor, std::size_t>("f:sid").first;;
 
-  // segment the mesh using default parameters for number of levels, and smoothing lambda
-  // Any other scalar values can be used instead of using SDF values computed using the CGAL function
-  std::size_t number_of_segments = CGAL::segmentation_from_sdf_values(mesh, sdf_property_map, segment_property_map, 5, 0.3);
+	// segment the mesh using default parameters for number of levels, and smoothing lambda
+	// Any other scalar values can be used instead of using SDF values computed using the CGAL function
+	std::size_t number_of_segments = CGAL::segmentation_from_sdf_values(mesh, sdf_property_map, segment_property_map, number_of_clusters, smoothing_lambda);
 
-  typedef CGAL::Face_filtered_graph<SM> Filtered_graph;
-  //print area of each segment and then put it in a Mesh and print it in an OFF file
-  Filtered_graph segment_mesh(mesh, 0, segment_property_map);
- 
-  printf("number_of_segments:%d\n", number_of_segments);
+	typedef CGAL::Face_filtered_graph<SM> Filtered_graph;
+	//print area of each segment and then put it in a Mesh and print it in an OFF file
+	Filtered_graph segment_mesh(mesh, 0, segment_property_map);
 
-  for(std::size_t id = 0; id < number_of_segments; ++id)
-  {
-    if(id > 0)
-      segment_mesh.set_selected_faces(id, segment_property_map);
-    std::cout << "Segment "<<id<<"'s area is : "<<CGAL::Polygon_mesh_processing::area(segment_mesh)<<std::endl;
-    SM out;
-    CGAL::copy_face_graph(segment_mesh, out);
-    std::ostringstream oss;
-	sprintf(tmpfile, "%s%s%s_Segment_", drive_, dir_, fname_);
-	//oss << tmpfile  << id << ".off";
-	oss << tmpfile << id;
-	std::ofstream os(oss.str().data());
-    os<<out;
-  }
-  
+	printf("number_of_segments:%d\n", number_of_segments);
+
+	for (std::size_t id = 0; id < number_of_segments; ++id)
+	{
+		if (id > 0)
+			segment_mesh.set_selected_faces(id, segment_property_map);
+		std::cout << "Segment " << id << "'s area is : " << CGAL::Polygon_mesh_processing::area(segment_mesh) << std::endl;
+		SM out;
+		CGAL::copy_face_graph(segment_mesh, out);
+		std::ostringstream oss;
+		sprintf(tmpfile, "%s%s%s_Segment_", drive_, dir_, fname_);
+		//oss << tmpfile  << id << ".off";
+		oss << tmpfile << id;
+		std::ofstream os(oss.str().data());
+		os << out;
+	}
+
 }
