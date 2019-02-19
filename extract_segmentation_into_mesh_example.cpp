@@ -8,6 +8,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <random>
 
 typedef CGAL::Exact_predicates_inexact_constructions_kernel Kernel;
 typedef CGAL::Surface_mesh<Kernel::Point_3> SM;
@@ -21,7 +22,7 @@ typedef boost::graph_traits<SM>::face_descriptor face_descriptor;
 #define VEC3_NORMALIZE(v)	{ float n=sqrt((v)[0]*(v)[0]+(v)[1]*(v)[1]+(v)[2]*(v)[2]); \
 							if(fabs(n)>1e-6) { float m=1.0f/n; (v)[0]*=m; (v)[1]*=m; (v)[2]*=m; } }
 
-unsigned int load_obj_to_off(const char *filename)
+void load_obj_to_off(const char *filename)
 {
 	unsigned int uiMesh;
 	FILE *pFile = fopen(filename, "r");
@@ -42,7 +43,7 @@ unsigned int load_obj_to_off(const char *filename)
 	if (!pFile)
 	{
 		fprintf(stderr, "cannot open file!\n");
-		return 0;
+		return;
 	}
 
 	_splitpath(filename, drive_, dir_, fname_, ext_);
@@ -97,7 +98,7 @@ unsigned int load_obj_to_off(const char *filename)
 				if (sscanf(buf, "f %d/%d/%d %d/%d/%d %d/%d/%d", pIndices + i, dmy2, dmy, pIndices + i + 1, dmy2 + 1, dmy + 1, pIndices + i + 2, dmy2 + 2, dmy + 2) != 9)
 				{
 					fprintf(stderr, "no support format!!\n");
-					return 0;
+					return;
 				}
 			}
 		}
@@ -137,6 +138,93 @@ unsigned int load_obj_to_off(const char *filename)
 	}
 	if (fp) fclose(fp);
 
+	free(pVertices);
+	free(pNormals);
+	free(pIndices);
+
+}
+void load_off_to_obj(const char *filename, float rgb[3])
+{
+	unsigned int uiMesh;
+	double *pVertices, *pNormals;
+	unsigned int *pIndices;
+	int i, j, f, iNumVertices, iNumIndices;
+	unsigned int i0, i1, i2;
+	double v1[3], v2[3], n[3];
+	char buf[256];
+
+	char tmpfile[256];
+	char drive_[_MAX_DRIVE];	// ドライブ名
+	char dir_[_MAX_DIR];		// ディレクトリ名
+	char fname_[_MAX_FNAME];	// ファイル名
+	char ext_[_MAX_EXT];		// 拡張子
+
+	_splitpath(filename, drive_, dir_, fname_, ext_);
+
+	FILE* fp = fopen(filename, "r");
+	if (!fp)
+	{
+		fprintf(stderr, "cannot open file![%s]\n", filename);
+		return;
+	}
+
+
+	fgets(buf, 256, fp);
+	fgets(buf, 256, fp);
+	int dmy;
+	sscanf(buf, "%d %d %d\n", &iNumVertices, &iNumIndices, &dmy);
+
+	pVertices = (double*)malloc(3*iNumVertices * sizeof(double));
+	pNormals = (double*)calloc(3*iNumVertices, sizeof(double));
+	pIndices = (unsigned int*)malloc(3*iNumIndices * sizeof(unsigned int));
+
+
+	for (int i = 0; i < iNumVertices; i++)
+	{
+		fgets(buf, 256, fp);
+		sscanf(buf, "%lf %lf %lf\n", &(pVertices[3 * i]), &(pVertices[3 * i + 1]), &(pVertices[3 * i + 2]));
+	}
+	for (int i = 0; i < iNumIndices; i++)
+	{
+		fgets(buf, 256, fp);
+		sscanf(buf, "%d %d %d %d\n", &dmy, &(pIndices[3 * i]), &(pIndices[3 * i + 1]), &(pIndices[3 * i + 2]));
+	}
+	if (fp) fclose(fp);
+	printf("vertex %d face %d\n", iNumVertices, iNumIndices);
+
+
+	sprintf(tmpfile, "%s%s%s%s", drive_, dir_, fname_, ".obj");
+	fp = fopen(tmpfile, "w");
+
+	sprintf(tmpfile, "%s%s%s%s", drive_, dir_, fname_, ".mtl");
+	fprintf(fp, "mtllib %s\n", tmpfile);
+	for (i = 0; i < iNumVertices; ++i)
+	{
+		fprintf(fp, "v %.10f %.10f %.10f %f %f %f\n", 
+			pVertices[3 * i], pVertices[3 * i + 1], pVertices[3 * i + 2],
+			rgb[0], rgb[1], rgb[2]);
+	}
+	fprintf(fp, "usemtl mat\n");
+
+	/* read index data and average face normals */
+	for (i = 0; i < iNumIndices; ++i)
+	{
+		fprintf(fp, "f %d %d %d\n", pIndices[3 * i] + 1, pIndices[3 * i + 1] + 1, pIndices[3 * i + 2] + 1);
+	}
+	fclose(fp);
+
+	sprintf(tmpfile, "%s%s%s%s", drive_, dir_, fname_, ".mtl");
+	fp = fopen(tmpfile, "w");
+
+	fprintf(fp, "newmtl mat\n");
+	fprintf(fp, "Ka 0.25000 0.25000 0.25000\n");
+	fprintf(fp, "Kd %f %f %f\n", rgb[0], rgb[1], rgb[2]);
+	fprintf(fp, "Ks 0.25000 0.25000 0.25000\n");
+	fprintf(fp, "Ns 5\n");
+	fclose(fp);
+	printf("ok!\n");
+
+	/* clean up */
 	free(pVertices);
 	free(pNormals);
 	free(pIndices);
@@ -219,19 +307,33 @@ int main(int argc, char** argv)
 
 	printf("number_of_segments:%d\n", number_of_segments);
 
+	std::mt19937 mt;
+	std::uniform_real_distribution<> rand(0.2, 1.0);
+
 	for (std::size_t id = 0; id < number_of_segments; ++id)
 	{
+		char tmpfile[256];
+
 		if (id > 0)
 			segment_mesh.set_selected_faces(id, segment_property_map);
 		std::cout << "Segment " << id << "'s area is : " << CGAL::Polygon_mesh_processing::area(segment_mesh) << std::endl;
 		SM out;
 		CGAL::copy_face_graph(segment_mesh, out);
 		std::ostringstream oss;
-		sprintf(tmpfile, "%s%s%s_Segment_", drive_, dir_, fname_);
+		sprintf(tmpfile, "%s%s%s_Segment_%d", drive_, dir_, fname_, id);
 		//oss << tmpfile  << id << ".off";
-		oss << tmpfile << id;
+		//oss << tmpfile << id;
+		oss << tmpfile;
 		std::ofstream os(oss.str().data());
 		os << out;
+		os.close();
+
+		float rgb[3];
+
+		rgb[0] = rand(mt);
+		rgb[1] = rand(mt);
+		rgb[2] = rand(mt);
+		load_off_to_obj(tmpfile, rgb);
 	}
 
 }
